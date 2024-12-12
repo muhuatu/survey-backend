@@ -23,4 +23,6 @@ public class DeleteReq {
     public void setQuizIdList(List<Integer> quizIdList) {
         this.quizIdList = quizIdList;
     }
+
+
 }

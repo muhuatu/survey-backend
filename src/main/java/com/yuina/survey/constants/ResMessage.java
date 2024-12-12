@@ -41,6 +41,7 @@ public enum ResMessage {
     INVALID_PASSWORD(400,"密碼錯誤"),//
     ADD_INFO_FAILED(400,"增加資訊失敗"),
     ACCOUNT_OR_PASSWORD_ERROR(404,"帳號或密碼錯誤"),//
+    PLEASE_LOGIN_FIRST(404,"請先登入帳戶"),//
     ;
 
     // 1. 先建立屬性

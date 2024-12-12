@@ -322,9 +322,9 @@ public class QuizServiceImpl implements QuizService {
         List<StatisticsDTO> statsDTOList = responseDao.getStatisticsByQuizId(quizId);
         // 將 DTO 內容轉為 VO，要再轉回 Res
         List<StatisticsVo> statsVoList = new ArrayList<>();
-        // 確認無重複問題 ID （HashSet：不重複、無序、無索引）
+        // 確認無重複問題 ID （HashSet：不重複、無序、無索引，類似只存 key 不存 value 的 MAP）
         Set<Integer> questionIdSet = new HashSet<>();
-        // 每個問題的選項計數 (HashMap：：不重複、無序、無索引、鍵值對)
+        // 每個問題的選項計數 (HashMap：不重複、無序、無索引、鍵值對)
         Map<Integer, Map<String, Integer>> questionOptionCountMap = new HashMap<>();
         // 問題選項
         List<Options> optionList = new ArrayList<>();
@@ -333,6 +333,7 @@ public class QuizServiceImpl implements QuizService {
 
         // 將選項與問題轉型，並放入Map中
         for (StatisticsDTO dto : statsDTOList) {
+            // 只處理非簡答題
             if (!dto.getType().equalsIgnoreCase(QuestionType.TEXT.getType())) {
                 // putIfAbsent 指定的 key 不存在時，才會新增 (如果目前沒有問題ID，就會加入此鍵值對)
                 // 此功能和 put 的差別：已經存在原有的值會保留，不會覆蓋
@@ -343,20 +344,28 @@ public class QuizServiceImpl implements QuizService {
                     answerList = mapper.readValue(dto.getAnswerStr(), new TypeReference<>() {
                     });
                     // 建立放選項與次數的 Map
-                    // 例如：questionOptionCountMap(問題ID, optionCountMap)
+                    // 例如：questionOptionCountMap(QuestionId, new HashMap<>())
                     // Map.get(key)會得到value
                     Map<String, Integer> optionCountMap = questionOptionCountMap.get(dto.getQuestionId());
                     // 選項只需要計算一次
                     for (Options opt : optionList) {
                         optionCountMap.putIfAbsent(opt.getOption(), 0);
                     }
+
+                    // 以上程式碼邏輯：先有(各選項,0)後，再放入(各答案,次數)
+
                     // 回答需要統計次數 (要避開資料庫中的[""]，否則會報錯)
                     if (answerList != null && !answerList.isEmpty() && !answerList.contains("")) {
                         for (String ans : answerList) {
-                            int count = optionCountMap.get(ans);
-                            optionCountMap.put(ans, count + 1);
+                            // 如果 optionCountMap 有包含 ans 的話，次數加一
+                            if (optionCountMap.containsKey(ans)) {
+                                int count = optionCountMap.get(ans);
+                                optionCountMap.put(ans, count + 1); // 放入選項的次數
+                            }
                         }
                     }
+                    // 此時 questionOptionCountMap(問題1, List1)
+                    // 先有(各選項,0)後，再放入(各答案,次數)
                 } catch (Exception e) {
                     return new StatisticsRes(ResMessage.OPTIONS_TRANSFER_ERROR.getCode(),
                             ResMessage.OPTIONS_TRANSFER_ERROR.getMessage());
@@ -364,13 +373,15 @@ public class QuizServiceImpl implements QuizService {
             }
         }
         // 將結果加入統計 VO 列表中
-        // 一題題放進 optionCountMap
         for (StatisticsDTO dto : statsDTOList) {
             // 放入單選與多選的統計結果
             if (!dto.getType().equalsIgnoreCase(QuestionType.TEXT.getType())) {
+                // 將 questionOptionCountMap 的 value 賦值給 optionCountMap
                 Map<String, Integer> optionCountMap = questionOptionCountMap.get(dto.getQuestionId());
+                // 更新 vo (要回傳給 StatisticsRes中 的 statisticsVoList)
                 StatisticsVo vo = new StatisticsVo(dto.getQuizName(),
                         dto.getQuestionId(), dto.getTitle(), optionCountMap);
+                // 用 Set 檢查重複問題ID，重複元素無法被加到 Set 裡面
                 if (questionIdSet.add(vo.getQuestionId())) {
                     statsVoList.add(vo);
                 }
