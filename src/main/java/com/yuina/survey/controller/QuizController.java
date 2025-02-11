@@ -1,13 +1,19 @@
 package com.yuina.survey.controller;
 
 import com.yuina.survey.constants.ResMessage;
+import com.yuina.survey.entity.Login;
+import com.yuina.survey.entity.Quiz;
 import com.yuina.survey.service.ifs.LoginService;
 import com.yuina.survey.service.ifs.QuizService;
 import com.yuina.survey.vo.*;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("admin/")
@@ -21,38 +27,33 @@ public class QuizController {
     private LoginService loginService;
 
     /**
-     *
      * @param req
      * @param session 每個不同的 Client 端(電腦或網頁)與同一台 Server 溝通後得到的 session_id 都不同
      * @return
      */
     @PostMapping(value = "login")
     public BasicRes login(@Valid @RequestBody LoginReq req, HttpSession session) {
-
         // 確認是否已有先登入了
         // 如果已登入成功，就有在 session 暫存帳號，也表示已確認帳密
-        String attr = (String) session.getAttribute("account");
-        if (attr != null && attr.equals(req.getEmail())) { // 登入成功的話
-            return new BasicRes(ResMessage.SUCCESS.getCode(),
-                    ResMessage.SUCCESS.getMessage());
+        Login attr = (Login) session.getAttribute("user");
+        if (attr != null && attr.getEmail().equals(req.getEmail())) {
+            return new LoginRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage(), attr);
         }
-        // 設定 session 有效時間（預設30分鐘），單位：秒
-        // 0 或 負數：表示永遠不會過期
-        session.setMaxInactiveInterval(600); // 600秒=10分鐘
-        BasicRes res = loginService.login(req);
-        // 若登入成功，使用 session 將 account 暫存
+        LoginRes res = loginService.login(req);
+        Login user = null;
         if (res.getCode() == 200) {
-            session.setAttribute("account", req.getEmail());
+            session.setMaxInactiveInterval(7200); // 2小時
+            session.setAttribute("user", res.getLogin());
+            user = (Login) session.getAttribute("user");
         }
-        return res;
+        return new LoginRes(res.getCode(), res.getMessage(), user);
     }
 
     @PostMapping(value = "logout")
-    public BasicRes logout(HttpSession session){
+    public BasicRes logout(HttpSession session) {
         // 讓 session 失效。再次登入後，會有新的 session_id
         session.invalidate();
-        return new BasicRes(ResMessage.SUCCESS.getCode(),
-                ResMessage.SUCCESS.getMessage());
+        return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
     }
 
     @PostMapping(value = "add-info")
@@ -61,25 +62,55 @@ public class QuizController {
     }
 
     // 新增
-    @PostMapping(value = "create&update")
+    @PostMapping(value = "create")
     public BasicRes create(@RequestBody CreateUpdateReq req) {
-        return quizService.createUpdate(req);
+        return quizService.create(req);
+    }
+
+    // 更新
+    @PostMapping(value = "update")
+    public BasicRes update(@RequestBody CreateUpdateReq req) {
+        return quizService.update(req);
     }
 
     // 刪除(用quiz_id)
     @PostMapping(value = "delete")
-    public BasicRes delete(@RequestBody DeleteReq req) {
-//        String attr = (String) session.getAttribute("account");
-//        if (attr == null) { // 登入成功的話
-//            return new BasicRes(ResMessage.PLEASE_LOGIN_FIRST.getCode(),
-//                    ResMessage.PLEASE_LOGIN_FIRST.getMessage());
-//        }
+    public BasicRes delete(@RequestBody DeleteReq req, HttpSession session) {
+        String attr = (String) session.getAttribute("account");
+        if (attr == null) { // 登入失敗的話
+            return new BasicRes(ResMessage.PLEASE_LOGIN_FIRST.getCode(),
+                    ResMessage.PLEASE_LOGIN_FIRST.getMessage());
+        }
         return quizService.delete(req);
     }
 
     // 查詢多份問卷(不含問題，用在首頁搜尋)
     @PostMapping(value = "search")
     public BasicRes search(@RequestBody SearchReq req) {
+        // 因為 service 中有使用 cache，所以必須要先確認 req 中所有參數的值都不是 null
+
+        // 1. 獲取來自前台的 req 資料(問卷名稱、開始與結束時間)
+        String name = req.getName();
+        LocalDate start = req.getStartDate();
+        LocalDate end = req.getEndDate();
+
+        // 2. 檢查參數
+        // 2-1. 假設 name 為空白，當作要取得全部
+        if (!StringUtils.hasText(name)) {
+            name = "";
+            req.setName(name);
+        }
+        // 2-2. 假設日期為空
+        if (start == null) {
+            start = LocalDate.of(1970, 1, 1);
+            req.setStartDate(start);
+        }
+        if (end == null) {
+            end = LocalDate.of(9999, 1, 1);
+            req.setEndDate(end);
+        }
+        // 3. 查詢
+        //List<Quiz> quizList = quizDao.search(name, start, end);
         return quizService.search(req);
     }
 

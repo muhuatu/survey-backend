@@ -15,6 +15,9 @@ import com.yuina.survey.service.ifs.QuizService;
 import com.yuina.survey.vo.*;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -34,6 +37,9 @@ public class QuizServiceImpl implements QuizService {
     @Autowired
     private ResponseDao responseDao;
 
+    @Autowired
+    private CacheManager cacheManager;
+
     ObjectMapper mapper = new ObjectMapper();
 
     // 一般來說，碰到資料庫的程式碼比較耗時，其他都耗費毫秒而已
@@ -41,82 +47,99 @@ public class QuizServiceImpl implements QuizService {
     // 新增
     @Transactional // 一個方法裡有兩個以上Dao時，必須加上此註解
     @Override
-    public BasicRes createUpdate(CreateUpdateReq req) {
+    @CacheEvict(cacheNames = "survey_search")
+    // 清除暫存資料：只有 cacheNames 沒有 key 的話，才會把 cacheNames 是 search 的所有暫存刪除
+    // 如果是 cacheNames + key 的話，只會刪除特地的暫存資料
+    public BasicRes create(CreateUpdateReq req) {
         // 新增問卷時，ID要為 0
         if (req.getId() < 0) {
             return new BasicRes(ResMessage.PARAM_ID_ERROR.getCode(),
                     ResMessage.PARAM_ID_ERROR.getMessage());
         }
-        // 檢查參數
-        if (req.getId() == 0) {
-            BasicRes checkResult = checkParams(req);
-            if (checkResult != null) {
-                return checkResult;
-            }
-            try {
-                // 1. 新增問卷
-                quizDao.createQuiz(req.getName(),
-                        req.getDescription(),
-                        req.getStartDate(),
-                        req.getEndDate(),
-                        req.isPublished());
 
-                // req.getId()會一直取到0，要另外寫語法取得最新ID
-                int quizId = quizDao.getLastInsertId();
-
-                // 用Dao新增問卷資料後，務必更新問卷ID，不然資料會被覆蓋
-                req.setId(quizId);
-
-                // 2. 新增問題集
-                for (Question item : req.getQuestionList()) {
-                    questionDao.createQuestion(quizId, item.getQuestionId(), item.getTitle(),
-                            item.getType(), item.isNecessary(), item.getOptionList());
-                }
-            } catch (Exception e) {
-                return new BasicRes(ResMessage.FAIL_EXCEPTION.getCode(),
-                        ResMessage.FAIL_EXCEPTION.getMessage());
-            }
-            return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
-
-        } else {
-            int quizId = req.getId();
-            // 檢查此問卷是否有內容
-            Optional<Quiz> op = quizDao.findById(quizId);
-            if (op.isEmpty()) {
-                return new BasicRes(ResMessage.QUIZ_NOT_FOUND.getCode(),
-                        ResMessage.QUIZ_NOT_FOUND.getMessage());
-            }
-            // 檢查發布
-            // 1. 尚未發布：!quiz.isPublished()
-            // 2. 已發布尚未開始：quiz.isPublished() && req.getStartDate().isAfter(LocalDate.now())
-            Quiz quiz = op.get();
-            if (!(!quiz.isPublished() ||
-                    (quiz.isPublished() && req.getStartDate().isAfter(LocalDate.now())))) {
-                return new BasicRes(ResMessage.QUIZ_UPDATE_FAILED.getCode(),
-                        ResMessage.QUIZ_UPDATE_FAILED.getMessage());
-            }
-            // 更新問卷
-            quizDao.updateQuiz(req.getId(),
-                    req.getName(),
+        BasicRes checkResult = checkParams(req);
+        if (checkResult != null) {
+            return checkResult;
+        }
+        try {
+            // 1. 新增問卷
+            quizDao.createQuiz(req.getName(),
                     req.getDescription(),
                     req.getStartDate(),
                     req.getEndDate(),
                     req.isPublished());
-            // 更新問題：刪除所有問題並更新
-            List<Question> questionList = req.getQuestionList();
-            questionDao.deleteByQuizId(quizId);
-            for (Question item : questionList) {
-                item.setQuizId(quizId);
-                questionDao.createQuestion(item.getQuizId(), item.getQuestionId(), item.getTitle(),
+
+            // req.getId()會一直取到0，要另外寫語法取得最新ID
+            int quizId = quizDao.getLastInsertId();
+
+            // 用Dao新增問卷資料後，務必更新問卷ID，不然資料會被覆蓋
+            req.setId(quizId);
+
+            // 2. 新增問題集
+            for (Question item : req.getQuestionList()) {
+                questionDao.createQuestion(quizId, item.getQuestionId(), item.getTitle(),
                         item.getType(), item.isNecessary(), item.getOptionList());
             }
-            return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
+        } catch (Exception e) {
+            return new BasicRes(ResMessage.FAIL_EXCEPTION.getCode(),
+                    ResMessage.FAIL_EXCEPTION.getMessage());
         }
+        return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
+    }
+
+    // 更新
+    @Transactional
+    @Override
+    @CacheEvict(cacheNames = "survey_search")
+    // 清除暫存資料：只有 cacheNames 沒有 key 的話，才會把 cacheNames 是 search 的所有暫存刪除
+    // 如果是 cacheNames + key 的話，只會刪除特地的暫存資料
+    public BasicRes update(CreateUpdateReq req) {
+        int quizId = req.getId();
+        // 更新問卷時，ID 要 >0
+        if (quizId < 0) {
+            return new BasicRes(ResMessage.PARAM_ID_ERROR.getCode(),
+                    ResMessage.PARAM_ID_ERROR.getMessage());
+        }
+        // 檢查此問卷是否有內容
+        Optional<Quiz> op = quizDao.findById(quizId);
+        if (op.isEmpty()) {
+            return new BasicRes(ResMessage.QUIZ_NOT_FOUND.getCode(),
+                    ResMessage.QUIZ_NOT_FOUND.getMessage());
+        }
+        // 檢查發布
+        // 1. 尚未發布：!quiz.isPublished()
+        // 2. 已發布尚未開始：quiz.isPublished() && req.getStartDate().isAfter(LocalDate.now())
+        Quiz quiz = op.get();
+        if (!(!quiz.isPublished() ||
+                (quiz.isPublished() && req.getStartDate().isAfter(LocalDate.now())))) {
+            return new BasicRes(ResMessage.QUIZ_UPDATE_FAILED.getCode(),
+                    ResMessage.QUIZ_UPDATE_FAILED.getMessage());
+        }
+        // 更新問卷
+        quizDao.updateQuiz(req.getId(),
+                req.getName(),
+                req.getDescription(),
+                req.getStartDate(),
+                req.getEndDate(),
+                req.isPublished());
+        // 更新問題：刪除所有問題並更新
+        List<Question> questionList = req.getQuestionList();
+        questionDao.deleteByQuizId(quizId);
+        for (Question item : questionList) {
+            item.setQuizId(quizId);
+            questionDao.createQuestion(item.getQuizId(), item.getQuestionId(), item.getTitle(),
+                    item.getType(), item.isNecessary(), item.getOptionList());
+        }
+        return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
     }
 
     // 刪除
     @Transactional
     @Override
+    @CacheEvict(cacheNames = "survey_search", allEntries = true)
+    // 清除暫存資料：只有 cacheNames 沒有 key 的話，才會把 cacheNames 是 search 的所有暫存刪除
+    // 如果是 cacheNames + key 的話，只會刪除特地的暫存資料
+    // allEntries = true 刪除所有暫存資料
     public BasicRes delete(DeleteReq req) {
         List<Integer> quizIdList = req.getQuizIdList();
         // 刪除問卷
@@ -124,37 +147,51 @@ public class QuizServiceImpl implements QuizService {
         // 刪此 quiz_id 問卷的所有問題
         questionDao.deleteByQuizIdIn(quizIdList);
         responseDao.deleteByQuizIdIn(quizIdList);
+
         return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
     }
 
-    // 查詢
+    /**
+     * 查詢
+     *
+     * @param req
+     * @return
+     */
+    // cacheNames 等號後面字串名稱自定義，若有多個要用大括號{}，例如：cacheNames = {"A","B"}
+    // cacheNames(value) 是書目錄的"章"，key是書目錄的"節"
+    // key 後面必須接字串，所以要用 concat 串接，而非字串參數值要用 toString() 轉換
+    // unless：排除某條件（不等於200就排除掉）
+    // #result：方法返回的結果，即使不同方法有不同資料型態，也能通用
+    //             key = "#req.name.concat('-')" +
+    //                    ".concat(#req.startDate.toString()).concat('-')" +
+    //                    ".concat(#req.endDate.toString())",
+    @Cacheable(cacheNames = "survey_search",
+            key = "#root.args[0].name + '-' + #root.args[0].startDate + '-' + #root.args[0].endDate",
+            unless = "#result.code != 200")
     @Override
     public SearchRes search(SearchReq req) {
+
+        // 因為 Service 有 cache，所以要先確認 req 中參數值不可有 null
+        // 下方條件值的轉換放到 controller
+
         // 1. 獲取來自前台的 req 資料(問卷名稱、開始與結束時間)
         String name = req.getName();
         LocalDate start = req.getStartDate();
         LocalDate end = req.getEndDate();
 
-        // 2. 檢查參數
-        // 2-1. 假設 name 為空白，當作要取得全部
-        if (!StringUtils.hasText(name)) {
-            name = "";
-        }
-        // 2-2. 假設日期為空
-        if (start == null) {
-            start = LocalDate.of(1970, 1, 1);
-        }
-        if (end == null) {
-            end = LocalDate.of(9999, 1, 1);
-        }
-        // 3. 查詢
-        List<Quiz> quizList = quizDao.search(name, start, end);
+        System.out.println("---------重複測試線---------");
+        // 有了 cache 後，有重複搜尋紀錄的話，就不會再到資料庫抓一次
 
         return new SearchRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage(),
-                quizList);
+                quizDao.search(name, start, end));
     }
 
-    // 獲取該問卷所有資料
+    /**
+     * 獲取該問卷所有資料
+     *
+     * @param req
+     * @return
+     */
     @Override
     public GetQuizRes searchQuiz(GetQuizReq req) {
 
@@ -177,6 +214,12 @@ public class QuizServiceImpl implements QuizService {
                 quiz.getStartDate(), quiz.getEndDate(), quiz.isPublished(), questionList);
     }
 
+    /**
+     * 獲取回答
+     *
+     * @param req
+     * @return
+     */
     @Override
     public BasicRes fillIn(FillInReq req) {
 
@@ -278,10 +321,10 @@ public class QuizServiceImpl implements QuizService {
         Integer maxResId = null;
         try {
             maxResId = responseDao.getMaxResponseIdByQuizId(quizId);
-            //System.out.println("目前最大填答ID: " + maxResId);
+            //System.out.println("目前最大回覆ID: " + maxResId);
         } catch (Exception e) {
             e.printStackTrace();
-            //System.out.println("錯誤填答ID");
+            //System.out.println("錯誤回覆ID");
         }
         int responseId = (maxResId != null ? maxResId : 0) + 1;
         for (Response res : resList) {
@@ -292,6 +335,12 @@ public class QuizServiceImpl implements QuizService {
         return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
     }
 
+    /**
+     * 藉由問卷ID找出所有人的填答
+     *
+     * @param quizId
+     * @return
+     */
     @Override
     public ResponseRes getAllResponse(int quizId) {
         if (quizId <= 0) {
@@ -302,6 +351,13 @@ public class QuizServiceImpl implements QuizService {
         return new ResponseRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage(), resList);
     }
 
+    /**
+     * 藉由問卷ID和回覆ID找出該用戶的填答
+     *
+     * @param quizId
+     * @param responseId
+     * @return
+     */
     @Override
     public ResponseRes getResponse(int quizId, int responseId) {
         if (quizId <= 0) {
@@ -312,47 +368,65 @@ public class QuizServiceImpl implements QuizService {
         return new ResponseRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage(), res);
     }
 
+    /**
+     * 藉由問卷ID找出所有用戶的統計資料
+     *
+     * @param quizId
+     * @return
+     */
     @Override
     public StatisticsRes getStatistics(int quizId) {
+
+        // 檢查參數
         if (quizId <= 0) {
             return new StatisticsRes(ResMessage.PARAM_ID_ERROR.getCode(),
                     ResMessage.PARAM_ID_ERROR.getMessage());
         }
-        // 從資料庫取出該問卷的回覆
+
+        // 1. 從資料庫取出該問卷的回覆
         List<StatisticsDTO> statsDTOList = responseDao.getStatisticsByQuizId(quizId);
-        // 將 DTO 內容轉為 VO，要再轉回 Res
+
+        // 2. 將 DTO 內容轉為 VO，要再轉回 Res
         List<StatisticsVo> statsVoList = new ArrayList<>();
-        // 確認無重複問題 ID （HashSet：不重複、無序、無索引，類似只存 key 不存 value 的 MAP）
-        Set<Integer> questionIdSet = new HashSet<>();
-        // 每個問題的選項計數 (HashMap：不重複、無序、無索引、鍵值對)
-        Map<Integer, Map<String, Integer>> questionOptionCountMap = new HashMap<>();
-        // 問題選項
+
+        // 3. 問題選項
         List<Options> optionList = new ArrayList<>();
-        // 答案
+
+        // 4. 答案
         List<String> answerList = new ArrayList<>();
 
-        // 將選項與問題轉型，並放入Map中
+        // 5. 小MAP -> (選項名, 計數)
+        Map<String, Integer> optionCountMap = new HashMap<>();
+
+        // 6. 大MAP -> 每個問題的選項計數 (QuestionId, 小MAP)
+        Map<Integer, Map<String, Integer>> questionOptionCountMap = new HashMap<>();
+
+        // 7. 確認無重複QuestionId （HashSet：不重複，類似只存 key 不存 value 的 MAP）
+        Set<Integer> questionIdSet = new HashSet<>();
+
+
+        // 將選項與問題轉型，並放入 小Map(optionCountMap) 中
         for (StatisticsDTO dto : statsDTOList) {
             // 只處理非簡答題
             if (!dto.getType().equalsIgnoreCase(QuestionType.TEXT.getType())) {
-                // putIfAbsent 指定的 key 不存在時，才會新增 (如果目前沒有問題ID，就會加入此鍵值對)
-                // 此功能和 put 的差別：已經存在原有的值會保留，不會覆蓋
+                // putIfAbsent 指定的 key 不存在時，才會新增 (如果目前沒有QuestionId，就會加入新HashMap)
+                // 此功能和 put 的差別：已經存在原有的值會保留，不會覆蓋!!
                 questionOptionCountMap.putIfAbsent(dto.getQuestionId(), new HashMap<>());
+
                 try {
                     optionList = mapper.readValue(dto.getOptionStr(), new TypeReference<>() {
                     });
                     answerList = mapper.readValue(dto.getAnswerStr(), new TypeReference<>() {
                     });
                     // 建立放選項與次數的 Map
-                    // 例如：questionOptionCountMap(QuestionId, new HashMap<>())
-                    // Map.get(key)會得到value
-                    Map<String, Integer> optionCountMap = questionOptionCountMap.get(dto.getQuestionId());
-                    // 選項只需要計算一次
+                    // Map.get(key)會是value
+                    // 例如：questionOptionCountMap(QuestionId, 空的小MAP)
+                    optionCountMap = questionOptionCountMap.get(dto.getQuestionId());
+
+                    // 選項只需要計算一次，次數放 0 就好，只是用來確認 ans 有無重複
                     for (Options opt : optionList) {
                         optionCountMap.putIfAbsent(opt.getOption(), 0);
                     }
-
-                    // 以上程式碼邏輯：先有(各選項,0)後，再放入(各答案,次數)
 
                     // 回答需要統計次數 (要避開資料庫中的[""]，否則會報錯)
                     if (answerList != null && !answerList.isEmpty() && !answerList.contains("")) {
@@ -364,21 +438,22 @@ public class QuizServiceImpl implements QuizService {
                             }
                         }
                     }
-                    // 此時 questionOptionCountMap(問題1, List1)
-                    // 先有(各選項,0)後，再放入(各答案,次數)
+                    // optionCountMap 先有(各選項,0)後，再放入(各答案,次數) -> 此為統計結果
+                    // 此時 questionOptionCountMap(問題1, 有統計結果的小MAP)
                 } catch (Exception e) {
                     return new StatisticsRes(ResMessage.OPTIONS_TRANSFER_ERROR.getCode(),
                             ResMessage.OPTIONS_TRANSFER_ERROR.getMessage());
                 }
             }
         }
-        // 將結果加入統計 VO 列表中
+        // 將 統計結果 加入 統計VO 中 ( 因為 Res 需要)
         for (StatisticsDTO dto : statsDTOList) {
             // 放入單選與多選的統計結果
             if (!dto.getType().equalsIgnoreCase(QuestionType.TEXT.getType())) {
-                // 將 questionOptionCountMap 的 value 賦值給 optionCountMap
-                Map<String, Integer> optionCountMap = questionOptionCountMap.get(dto.getQuestionId());
-                // 更新 vo (要回傳給 StatisticsRes中 的 statisticsVoList)
+                // 將 questionOptionCountMap 中 對應QuestionId 的 value 給 optionCountMap
+                // 如果沒有這句，所有問題都會是最後一個問題的選項，會被覆蓋!!
+                optionCountMap = questionOptionCountMap.get(dto.getQuestionId());
+                // 更新 vo (要回傳給 Res 中的 統計VO)
                 StatisticsVo vo = new StatisticsVo(dto.getQuizName(),
                         dto.getQuestionId(), dto.getTitle(), optionCountMap);
                 // 用 Set 檢查重複問題ID，重複元素無法被加到 Set 裡面
@@ -391,12 +466,25 @@ public class QuizServiceImpl implements QuizService {
                 ResMessage.SUCCESS.getMessage(), statsVoList);
     }
 
+    /**
+     * 檢查重複信箱
+     *
+     * @param email
+     * @param quizId
+     * @return
+     */
     @Override
-    public boolean checkEmail(String email) {
-        Long result = responseDao.checkEmail(email); // 返回的為 Long 類型
+    public boolean checkEmail(String email, int quizId) {
+        Long result = responseDao.checkEmail(email, quizId); // 返回的為 Long 類型
         return result != null && result > 0;
     }
 
+    /**
+     * 統計測試
+     *
+     * @param quizId
+     * @return
+     */
     @Override
     public StatisticsRes test(int quizId) {
         if (quizId <= 0) {
@@ -502,7 +590,12 @@ public class QuizServiceImpl implements QuizService {
     }
 
 
-    // 檢查參數的方法
+    /**
+     * 檢查參數的方法
+     *
+     * @param req
+     * @return
+     */
     public BasicRes checkParams(CreateUpdateReq req) {
         // 1. 檢查參數 - 問卷
         if (!StringUtils.hasText(req.getName())) {

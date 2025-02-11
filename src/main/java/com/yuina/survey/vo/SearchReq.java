@@ -14,9 +14,6 @@ public class SearchReq {
     @JsonProperty("end_date")
     private LocalDate endDate;
 
-
-    // 只要 GET 方法
-
     public String getName() {
         return name;
     }
@@ -29,4 +26,15 @@ public class SearchReq {
         return endDate;
     }
 
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setStartDate(LocalDate startDate) {
+        this.startDate = startDate;
+    }
+
+    public void setEndDate(LocalDate endDate) {
+        this.endDate = endDate;
+    }
 }

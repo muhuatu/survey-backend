@@ -2,13 +2,14 @@ package com.yuina.survey;
 
 import com.yuina.survey.service.ifs.QuizService2;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.*;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-//@SpringBootTest
+@SpringBootTest
 class SurveyApplicationTests {
 
     @Test

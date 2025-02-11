@@ -6,6 +6,7 @@ import com.yuina.survey.repository.LoginDao;
 import com.yuina.survey.service.ifs.LoginService;
 import com.yuina.survey.vo.BasicRes;
 import com.yuina.survey.vo.LoginReq;
+import com.yuina.survey.vo.LoginRes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -17,7 +18,7 @@ public class LoginServiceImpl implements LoginService {
     private LoginDao loginDao;
 
     @Override
-    public BasicRes login(LoginReq req) {
+    public LoginRes login(LoginReq req) {
 
         String email = req.getEmail();
         String password = req.getPassword();
@@ -25,20 +26,20 @@ public class LoginServiceImpl implements LoginService {
         // 1. 檢查帳戶是否存在
         Login login = loginDao.getInfoById(email);
         if (login == null) {
-            return new BasicRes(ResMessage.ACCOUNT_NOT_EXIST.getCode(),
+            return new LoginRes(ResMessage.ACCOUNT_NOT_EXIST.getCode(),
                     ResMessage.ACCOUNT_NOT_EXIST.getMessage());
         }
         // 2. 加密與驗證密碼
         if (!isPasswordValid(email, password)) {
-            return new BasicRes(ResMessage.INVALID_PASSWORD.getCode(),
+            return new LoginRes(ResMessage.INVALID_PASSWORD.getCode(),
                     ResMessage.INVALID_PASSWORD.getMessage());
         }
         // 3. 驗證成功
-        return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
+        return new LoginRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage(), login);
     }
 
     @Override
-    public BasicRes add(LoginReq req) {
+    public LoginRes add(LoginReq req) {
 
         String email = req.getEmail();
         String password = req.getPassword();
@@ -47,7 +48,7 @@ public class LoginServiceImpl implements LoginService {
         Login login = loginDao.getInfoById(email);
 
         if (login != null) {
-            return new BasicRes(ResMessage.ACCOUNT_IS_EXIST.getCode(),
+            return new LoginRes(ResMessage.ACCOUNT_IS_EXIST.getCode(),
                     ResMessage.ACCOUNT_IS_EXIST.getMessage());
         }
 
@@ -62,10 +63,10 @@ public class LoginServiceImpl implements LoginService {
         try {
             loginDao.save(login);
         } catch (Exception e) {
-            return new BasicRes(ResMessage.ADD_INFO_FAILED.getCode(),
+            return new LoginRes(ResMessage.ADD_INFO_FAILED.getCode(),
                     ResMessage.ADD_INFO_FAILED.getMessage());
         }
-        return new BasicRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
+        return new LoginRes(ResMessage.SUCCESS.getCode(), ResMessage.SUCCESS.getMessage());
     }
 
 

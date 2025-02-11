@@ -90,13 +90,6 @@ public interface QuizDao extends JpaRepository<Quiz, Integer> {
                              @Param("endDate") LocalDate endDate);
 
     /**
-     * 透過問卷ID查找發布狀態 (JPA語法)
-     * @param quizId
-     * @return
-     */
-    //public Quiz findByIdActivePublishedTrue(int quizId);
-
-    /**
      * 透過問卷ID查找發布狀態
      *
      * @param quizId

@@ -8,14 +8,14 @@ public interface QuizService {
      * 新增&更新問卷
      * @param req
      */
-    public BasicRes createUpdate(CreateUpdateReq req);
+    public BasicRes create(CreateUpdateReq req);
 
     /**
      * 更新問卷
      * @param req
      * @return
      */
-    //public BasicRes update(CreateUpdateReq req);
+    public BasicRes update(CreateUpdateReq req);
 
     /**
      * 刪除問卷
@@ -71,7 +71,7 @@ public interface QuizService {
      * @param email
      * @return
      */
-    public boolean checkEmail(String email);
+    public boolean checkEmail(String email, int quizId);
 
     // 測試
     public StatisticsRes test(int quizId);

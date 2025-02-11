@@ -98,7 +98,7 @@ public interface ResponseDao extends JpaRepository<Response, ResponseId> {
      * @param email
      * @return
      */
-    @Query(value = "select exists (select 1 from response where email = ?1)", nativeQuery = true)
-    public Long checkEmail(String email);
+    @Query(value = "select exists (select 1 from response where email = ?1 and quiz_id = ?2)", nativeQuery = true)
+    public Long checkEmail(String email, int quizId);
 
 }
